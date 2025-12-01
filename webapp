@@ -1,0 +1,71 @@
+"""
+webapp.py
+Flask UI and JSON API for FlowSight.
+Endpoints:
+- / -> minimal HTML dashboard
+- /api/top-src?k=10 -> top source IPs
+- /api/top-pairs?k=10 -> top src->dst pairs
+- /api/metrics -> basic counters snapshot
+- /api/snapshots -> recent DB snapshots
+"""
+
+from flask import Flask, jsonify, render_template_string, request
+from typing import Any
+import storage
+
+app = Flask(__name__)
+# aggregator will be injected at runtime (set by main)
+AGG = None
+
+TEMPLATE = """
+<!doctype html>
+<html>
+<head><title>FlowSight</title></head>
+<body>
+  <h1>FlowSight — Top Talkers</h1>
+  <p>Flows processed: {{flow_count}}</p>
+  <h2>Top sources</h2>
+  <ol>
+  {% for ip, b in top_src %}
+    <li>{{ip}} — {{b}} bytes</li>
+  {% endfor %}
+  </ol>
+  <h2>Top pairs</h2>
+  <ol>
+  {% for pair, b in top_pairs %}
+    <li>{{pair[0]}} -> {{pair[1]}} — {{b}} bytes</li>
+  {% endfor %}
+  </ol>
+  <p>API: /api/top-src, /api/top-pairs, /api/metrics, /api/snapshots</p>
+</body>
+</html>
+"""
+
+@app.route("/")
+def index():
+    global AGG
+    agg = AGG
+    top_src = agg.top_k_src(10) if agg else []
+    top_pairs = agg.top_k_pairs(10) if agg else []
+    metrics = agg.snapshot_metrics() if agg else {}
+    return render_template_string(TEMPLATE, flow_count=metrics.get("flow_count",0), top_src=top_src, top_pairs=[(p, b) for p,b in top_pairs])
+
+@app.route("/api/top-src")
+def api_top_src():
+    k = int(request.args.get("k", "10"))
+    return jsonify([{"src": ip, "bytes": b} for ip, b in AGG.top_k_src(k)])
+
+@app.route("/api/top-pairs")
+def api_top_pairs():
+    k = int(request.args.get("k", "10"))
+    return jsonify([{"pair": [p[0], p[1]], "bytes": b} for p, b in AGG.top_k_pairs(k)])
+
+@app.route("/api/metrics")
+def api_metrics():
+    return jsonify(AGG.snapshot_metrics())
+
+@app.route("/api/snapshots")
+def api_snapshots():
+    limit = int(request.args.get("limit", "100"))
+    rows = storage.recent_snapshots(limit)
+    return jsonify([{"ts": r[0], "metric": r[1], "key": r[2], "bytes": r[3]} for r in rows])
