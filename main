@@ -1,0 +1,50 @@
+"""
+main.py
+Orchestrator: starts collector, aggregator, periodic persister and web server.
+Usage: python main.py
+For demo: send newline-delimited JSON flows to UDP port 9999:
+echo '{"src_ip":"192.168.1.2","dst_ip":"8.8.8.8","bytes":150,"packets":1}' | nc -u -w0 127.0.0.1 9999
+"""
+
+import time
+import threading
+from collector import UDPFlowCollector
+from aggregator import FlowAggregator
+import storage
+import webapp
+from flask import Flask
+
+PERSIST_INTERVAL = 30  # seconds snapshot interval
+TOP_K = 10
+
+def start_components(listen_host="0.0.0.0", listen_port=9999, http_port=5001):
+    agg = FlowAggregator()
+    # inject aggregator into webapp module
+    webapp.AGG = agg
+
+    # start UDP collector
+    collector = UDPFlowCollector(host=listen_host, port=listen_port, on_flow=agg.update_flow)
+    collector.start()
+
+    # start periodic persister
+    def persister():
+        while True:
+            time.sleep(PERSIST_INTERVAL)
+            ts = int(time.time())
+            top_src = agg.top_k_src(TOP_K)
+            top_pairs = agg.top_k_pairs(TOP_K)
+            storage.persist_top_list("top_src", top_src, ts=ts)
+            storage.persist_top_list("top_pairs", [((a+"->"+b), v) for (a,b), v in top_pairs], ts=ts)
+            # optional: rotate/reset aggregator to keep memory bounded
+            # agg.reset()
+
+    t = threading.Thread(target=persister, daemon=True)
+    t.start()
+
+    # start flask app (blocking)
+    storage.init_db()
+    app = webapp.app
+    app.run(host="0.0.0.0", port=http_port, debug=False)
+
+if __name__ == "__main__":
+    start_components()
