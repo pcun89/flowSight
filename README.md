@@ -21,3 +21,11 @@ FlowSight is a compact Python project for collecting flow records (demo mode: ne
 python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+
+
+---
+
+# Final notes
+- This project is intentionally simple to be runnable without special permissions or binary NetFlow parsing. It’s easy to extend to real NetFlow/IPFIX collection when you want to.
+- I included the **code**, the **data structures**, and the **time complexity** notes as requested.
+- If you want a NetFlow v5 binary parser, a flow generator, or a Dockerfile next, tell me which and I’ll produce it.
